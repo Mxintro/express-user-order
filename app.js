@@ -34,8 +34,8 @@ const dbQuery = {
   getUserByPhone:'select * from user where phone = ?',
   getUserById: 'select * from user where id = ?',
   queryPwd:'select * from user where password = ?',
-  orderInsert:'insert into order(id, name, uid, good, price,count,cost) VALUES(0,?,?,?,?,?,?)',
-  orderQuery: 'slect * from order where uid = ?'
+  orderInsert:'insert into good_order (id,title,goodIid,nowprice,count,style,size,uid,cost,create_time,orderId) VALUES(0,?,?,?,?,?,?,?,?,?,?)',
+  orderQuery: 'select * from good_order where uid = ?'
 };
 
 app.post('/login', upload.array(), (req, res) => {
@@ -48,7 +48,7 @@ app.post('/login', upload.array(), (req, res) => {
         status: 500,
         msg: err
       })
-      res.end()
+      return
     }
     else {
       if (result.length == 0) {
@@ -62,7 +62,7 @@ app.post('/login', upload.array(), (req, res) => {
         if (user.phone == params.phone && user.password == params.password) {
           const data = {...user}
           delete data.password
-          data.token = jwt.sign({uid: user.id}, 'seaturtle', { expiresIn: 60 * 60 })
+          data.token = jwt.sign({uid: user.id}, 'seaturtle', { expiresIn: '7d' })
           res.send({
             status: 200,
             msg: '恭喜,登录成功.',
@@ -74,7 +74,6 @@ app.post('/login', upload.array(), (req, res) => {
             status: 401,
             msg: '手机号或者密码有误.'
           })
-          res.end()
         }
       }
     }
@@ -89,7 +88,7 @@ app.post('/reg', upload.array(), (req, res) => {
         status: 500,
         msg: err
       })
-      res.end()
+      return
     }
     else {
       //从数据库 查询 手机号 有没有注册
@@ -107,7 +106,7 @@ app.post('/reg', upload.array(), (req, res) => {
               status: 500,
               msg: err
             })
-            res.end()
+            return
           }
           else {
             console.log(result.insertId)
@@ -117,12 +116,12 @@ app.post('/reg', upload.array(), (req, res) => {
                   status: 500,
                   msg: err
                 })
-                res.end()
+                return
               }
               const user = result[0]
               const data = {...user}
               delete data.password
-              data.token = jwt.sign({uid: user.id}, 'seaturtle', { expiresIn: 60 * 60 })
+              data.token = jwt.sign({uid: user.id}, 'seaturtle', { expiresIn: '7d' })
               res.send({
                 status: 201,
                 msg: '恭喜,注册成功.',
@@ -136,65 +135,73 @@ app.post('/reg', upload.array(), (req, res) => {
   })
 })
 
-app.post('/order', upload.array(), verifyToken,(req, res) => {
-  const params = req.body
-  connection.query(dbQuery.getUserByPhone, params.phone, (err,_) => {
-    if (err) {
-      res.send({
-        status: 500,
-        msg: err
-      })
-      res.end()
-    }
-    else {
-      connection.query(dbQuery.orderInsert, params, (err, result) => {
-        if (err) throw err
-        else {
-          log(result)
-          res.send({
-            params,
-            status: 201,
-            message: '订单完成',
-            result
-          })
-        }
-      })
-    }
+app.post('/order', verifyToken,(req, res) => {
+  const data = req.body
+  if(data.length < 1) {
+    res.sendStatus(400)
+    return
+  }
+  for(let item of data){
+    const order = { ...item }
+    order.order = utils.randomNumber()
+    const params = Object.values(order)
+
+    connection.query(dbQuery.orderInsert, params, (err,_) => {
+      if (err) {
+        res.send({
+          status: 500,
+          msg: err
+        })
+        return
+      }
+    })
+  }
+  res.send({
+    status: 201,
+    message: '订单完成',
   })
 })
 
 app.get('/order', upload.array(), verifyToken,(req, res) => {
-  console.log(req.query);
-  connection.query(dbQuery.orderQuery, req.query, (err, result) => {
-    if (err) {
-      res.send({
-        status: 500,
-        msg: err
-      })
-      res.end()
-    }
-    else {
-      res.send({
-        params,
-        status: 200,
-        message: '订单查询成功',
-        result
-      })
-    }
-  })
-  res.end()
+  console.log(req.query)
+  try {
+    const uid = req.query['uid']
+    connection.query(dbQuery.orderQuery, uid, (err, result) => {
+      if (err) {
+        res.send({
+          status: 500,
+          msg: err
+        })
+        return
+      }
+      else {
+        res.send({
+          status: 200,
+          message: '订单查询成功',
+          data: result
+        })
+      }
+    })
+  } catch(err) {
+    console.log(err)
+  }
 })
 
 function verifyToken(req, res, next) {
-  const token = req.headers['Authorization']['token'];
-  if (typeof token == 'undefined') {
-    res.sendStatus(403)
+  const token = req.headers['authorization']
+  if (typeof token === 'undefined') {
+    res.send({
+      status:400,
+      msg:'undefined'
+    })
+    return
   }else {
     jwt.verify(token, "seaturtle", function (err, decode) {
-      if (err) {         
-          res.send({'status':403,err});            
+      if (err) {  
+        res.send({'status':403,msg:'过期'});
+        return          
       } else {
-          next()
+        next()
       }
     })
   }
